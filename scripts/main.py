@@ -1015,6 +1015,13 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
     with SB(uc=True, test=True, locale="en", headed=False,
             user_data_dir=user_data_dir,
             chromium_arg="--disable-blink-features=AutomationControlled") as sb:
+        # 修复: 该环境 execute_script 不包裹函数体, 裸 return 报 Illegal return statement
+        # 统一用 IIFE 包裹, 使所有 return 脚本正常工作
+        _orig_execute_script = sb.execute_script
+        def _wrapped_execute_script(script, *args, **kwargs):
+            return _orig_execute_script("(function(){" + script + "})()", *args, **kwargs)
+        sb.execute_script = _wrapped_execute_script
+        log("已应用 execute_script IIFE 包装补丁")
         try:
             if not login(sb, email, password):
                 screenshot = take_screenshot(sb, idx, "login-fail")
