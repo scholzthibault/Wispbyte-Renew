@@ -819,8 +819,25 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
         if state != 'ready':
             log(f"广告按钮状态: {state}，跳过看广告（可能已达7天上限或无广告）")
             return False
-        sb.execute_script("document.getElementById('memory-boost-claim-btn').click()")
-        log("✅ 已点击 Watch ad 按钮")
+        clicked = False
+        try:
+            sb.click("#memory-boost-claim-btn", timeout=8)
+            clicked = True
+            log("✅ 已点击 Watch ad 按钮（原生点击）")
+        except Exception as e1:
+            log(f"原生点击失败: {e1}", "WARN")
+            try:
+                sb.execute_script("""
+                    var b = document.getElementById('memory-boost-claim-btn');
+                    if (b) { b.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); }
+                """)
+                clicked = True
+                log("✅ 已点击 Watch ad 按钮（事件派发）")
+            except Exception as e2:
+                log(f"事件派发点击也失败: {e2}", "WARN")
+        if not clicked:
+            return False
+        log("广告按钮点击动作完成")
     except Exception as e:
         log(f"点击 Watch ad 按钮失败: {e}", "WARN")
         return False
