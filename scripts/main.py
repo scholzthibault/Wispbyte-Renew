@@ -598,9 +598,16 @@ def handle_reward_ad_flow(sb, identifier: str, console_url: str) -> bool:
         import os
         os.makedirs("output", exist_ok=True)
         html = sb.get_page_source()
-        with open(f"output/debug_console_{safe_id}.html", "w", encoding="utf-8") as f:
+        with open("output/debug_console.html", "w", encoding="utf-8") as f:
             f.write(html)
-        log(f"DEBUG: 控制台页面 HTML 已保存 output/debug_console_{safe_id}.html ({len(html)} bytes)")
+        log(f"DEBUG: 控制台页面 HTML 已保存 output/debug_console.html ({len(html)} bytes)")
+        # 扫描 memory-boost-bar 区域的按钮结构
+        bar = sb.execute_script("""
+            var bar = document.querySelector('.memory-boost-bar');
+            if (!bar) return 'NO .memory-boost-bar FOUND';
+            return bar.outerHTML.slice(0, 3000);
+        """)
+        log(f"DEBUG: memory-boost-bar HTML:\n{bar}")
         # 同时搜索可能的广告按钮文本
         found = sb.execute_script("""
             var hits = [];
