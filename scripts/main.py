@@ -802,6 +802,54 @@ def get_servers(sb) -> List[str]:
 
 
 # ====================== 重启服务器（完整流程）======================
+def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
+    """
+    主动点击控制台的 memory-boost-bar 观看广告按钮，完成 +100MiB 解锁。
+    返回 True 表示广告观看完成（或已无需观看）。
+    """
+    safe_id = mask_server_id(identifier)
+    log(f"=== 尝试观看广告解锁 +100MiB: {safe_id} ===")
+    try:
+        state = sb.execute_script("""
+            var b = document.getElementById('memory-boost-claim-btn');
+            if (!b) return 'missing';
+            if (b.disabled) return 'disabled';
+            return 'ready';
+        """)
+        if state != 'ready':
+            log(f"广告按钮状态: {state}，跳过看广告（可能已达7天上限或无广告）")
+            return False
+        sb.execute_script("document.getElementById('memory-boost-claim-btn').click()")
+        log("✅ 已点击 Watch ad 按钮")
+    except Exception as e:
+        log(f"点击 Watch ad 按钮失败: {e}", "WARN")
+        return False
+
+    # 等待进入 reward 流程（最长 30 秒）
+    for i in range(30):
+        time.sleep(1)
+        if _dismiss_alert_if_present(sb):
+            log("⚠️ 出现 No ad available 弹窗，本次无广告可看")
+            return False
+        situation = _get_page_situation(sb)
+        if situation == 'reward':
+            log("✅ 已进入广告奖励页面，开始观看")
+            try:
+                ok = _execute_reward_ad_watch(sb, identifier)
+                log(f"广告观看结果: {'成功' if ok else '失败'}")
+                # 回到控制台以便后续重启
+                try:
+                    sb.get(console_url)
+                    time.sleep(3)
+                except Exception:
+                    pass
+                return ok
+            except Exception as e:
+                log(f"广告观看异常: {e}", "ERROR")
+                return False
+    log("点击 Watch ad 后未进入奖励页面", "WARN")
+    return False
+
 def restart_server(sb, identifier: str) -> bool:
     """
     完整重启流程：
@@ -823,6 +871,12 @@ def restart_server(sb, identifier: str) -> bool:
     sb.get(console_url)
     time.sleep(5)
     block_ads_modals(sb)
+
+    # ── Step 1.5: 观看广告解锁 +100MiB（Restart after unlocking）──
+    try:
+        claim_memory_boost(sb, identifier, console_url)
+    except Exception as e:
+        log(f"广告解锁流程异常（不影响重启）: {e}", "WARN")
 
     # ── Step 2: 点击 Start / Restart ──
     start_btn = None
