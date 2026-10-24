@@ -813,24 +813,115 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
     try:
         sb.click("#memory-boost-claim-btn", timeout=10)
         log("✅ 已点击 Watch ad 按钮")
-        # DEBUG: 点击后立刻观察页面反应
-        time.sleep(5)
+        # Wisp FM 弹窗流程: 点 Watch & support us -> YouTube 直播播放 -> 完成后回来
+        time.sleep(4)
+        # 抓弹窗 HTML（一次性诊断）
         try:
-            log(f"[DEBUG] 窗口数: {len(sb.driver.window_handles)}")
-        except Exception:
-            pass
-        try:
-            modal = sb.execute_script(
-                "(function(){var m=document.querySelector('.modal,.ct-modal,[class*=modal],[class*=Modal],[class*=popup],[class*=dialog],[class*=overlay]');"
-                "return m?m.className+'|'+(m.textContent||'').slice(0,200):'none'})()")
-            log(f"[DEBUG] 页面弹窗/覆盖层: {modal}")
+            mhtml = sb.execute_script(
+                "(function(){var ms=document.querySelectorAll('[class*=modal],[class*=overlay],[class*=dialog],[class*=popup]');"
+                "for(var i=0;i<ms.length;i++){var t=(ms[i].textContent||'');"
+                "if(t.indexOf('Watch')>=0||t.indexOf('Wisp FM')>=0){return ms[i].outerHTML.slice(0,2500)}}"
+                "return 'NO FM MODAL'})()")
+            log(f"[DEBUG] FM 弹窗 HTML: {mhtml}")
         except Exception as e:
-            log(f"[DEBUG] 弹窗检查异常: {type(e).__name__}")
-        try:
-            sb.save_screenshot("after-watchad-click", folder="output/screenshots")
-            log("[DEBUG] 点击后截图已保存")
-        except Exception as e:
-            log(f"[DEBUG] 截图失败: {type(e).__name__}")
+            log(f"[DEBUG] FM 弹窗抓取异常: {type(e).__name__}")
+        # 点 Watch & support us（按文本找按钮）
+        clicked_support = False
+        for attempt in range(5):
+            try:
+                btns = sb.find_elements("button a div span")
+                for el in btns:
+                    try:
+                        txt = (el.text or "").strip()
+                    except Exception:
+                        continue
+                    if "Watch & support" in txt or "Watch &amp; support" in txt:
+                        try:
+                            el.click()
+                            clicked_support = True
+                            log(f"✅ 已点击 'Watch & support us'（<{el.tag_name}>）")
+                            break
+                        except Exception:
+                            try:
+                                sb.execute_script(
+                                    "(function(){var e=arguments[0];e.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}))})()",
+                                    el)
+                                clicked_support = True
+                                log("✅ 已通过 JS 事件点击 'Watch & support us'")
+                                break
+                            except Exception as e2:
+                                log(f"JS 点击失败: {type(e2).__name__}", "WARN")
+                    except Exception:
+                        continue
+                if clicked_support:
+                    break
+            except Exception as e:
+                log(f"查找按钮第{attempt+1}次异常: {type(e).__name__}", "WARN")
+            time.sleep(2)
+        if clicked_support:
+            # 记录点击前窗口，检测新标签
+            try:
+                before = set(sb.driver.window_handles)
+            except Exception:
+                before = set()
+            # 保持页面 150 秒（给 YouTube 播放计入观看）
+            log("保持页面播放 150 秒...")
+            for i in range(15):
+                time.sleep(10)
+                try:
+                    now = set(sb.driver.window_handles)
+                    if len(now) > len(before):
+                        new_h = list(now - before)
+                        try:
+                            sb.switch_to_window(new_h[0])
+                            log(f"切换到新标签页: {sb.get_current_url()[:80]}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                if i % 3 == 2:
+                    try:
+                        log(f"播放中... [{(i+1)*10}s] url={sb.get_current_url()[:70]}")
+                    except Exception:
+                        pass
+            # 关掉可能的 YouTube 标签，回到控制台
+            try:
+                if len(sb.driver.window_handles) > 1:
+                    handles = sb.driver.window_handles
+                    for h in handles:
+                        try:
+                            sb.switch_to_window(h)
+                            if 'wispbyte.com' not in sb.get_current_url():
+                                sb.driver.close()
+                        except Exception:
+                            pass
+                    for h in sb.driver.window_handles:
+                        try:
+                            sb.switch_to_window(h)
+                            if 'wispbyte.com' in sb.get_current_url():
+                                break
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            try:
+                sb.get(console_url)
+                time.sleep(4)
+                log("已回到控制台")
+            except Exception:
+                pass
+            try:
+                sb.save_screenshot("after-fm-watch", folder="output/screenshots")
+                log("[DEBUG] 观看后截图已保存")
+            except Exception:
+                pass
+            return True
+        else:
+            log("⚠️ 未找到 'Watch & support us' 按钮（可能已有观看记录或弹窗结构变化）", "WARN")
+            try:
+                sb.save_screenshot("no-support-btn", folder="output/screenshots")
+            except Exception:
+                pass
     except Exception as e:
         log(f"点击 Watch ad 按钮失败: {type(e).__name__}: '{e}'", "WARN")
         return False
