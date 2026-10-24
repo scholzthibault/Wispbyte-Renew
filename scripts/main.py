@@ -829,34 +829,33 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
         clicked_support = False
         for attempt in range(5):
             try:
-                btns = sb.find_elements("button a div span")
+                btns = sb.find_elements("button, a, div, span")
                 for el in btns:
+                    txt = ""
                     try:
                         txt = (el.text or "").strip()
                     except Exception:
                         continue
-                    if "Watch & support" in txt or "Watch &amp; support" in txt:
+                    if "Watch & support" in txt:
                         try:
                             el.click()
                             clicked_support = True
-                            log(f"✅ 已点击 'Watch & support us'（<{el.tag_name}>）")
-                            break
+                            log(f"已点击 'Watch & support us'（<{el.tag_name}>）")
                         except Exception:
                             try:
                                 sb.execute_script(
                                     "(function(){var e=arguments[0];e.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}))})()",
                                     el)
                                 clicked_support = True
-                                log("✅ 已通过 JS 事件点击 'Watch & support us'")
-                                break
+                                log("已通过 JS 事件点击 'Watch & support us'")
                             except Exception as e2:
                                 log(f"JS 点击失败: {type(e2).__name__}", "WARN")
-                    except Exception:
-                        continue
-                if clicked_support:
-                    break
+                        if clicked_support:
+                            break
             except Exception as e:
                 log(f"查找按钮第{attempt+1}次异常: {type(e).__name__}", "WARN")
+            if clicked_support:
+                break
             time.sleep(2)
         if clicked_support:
             # 记录点击前窗口，检测新标签
