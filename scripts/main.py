@@ -813,6 +813,24 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
     try:
         sb.click("#memory-boost-claim-btn", timeout=10)
         log("✅ 已点击 Watch ad 按钮")
+        # DEBUG: 点击后立刻观察页面反应
+        time.sleep(5)
+        try:
+            log(f"[DEBUG] 窗口数: {len(sb.driver.window_handles)}")
+        except Exception:
+            pass
+        try:
+            modal = sb.execute_script(
+                "(function(){var m=document.querySelector('.modal,.ct-modal,[class*=modal],[class*=Modal],[class*=popup],[class*=dialog],[class*=overlay]');"
+                "return m?m.className+'|'+(m.textContent||'').slice(0,200):'none'})()")
+            log(f"[DEBUG] 页面弹窗/覆盖层: {modal}")
+        except Exception as e:
+            log(f"[DEBUG] 弹窗检查异常: {type(e).__name__}")
+        try:
+            sb.save_screenshot("after-watchad-click", folder="output/screenshots")
+            log("[DEBUG] 点击后截图已保存")
+        except Exception as e:
+            log(f"[DEBUG] 截图失败: {type(e).__name__}")
     except Exception as e:
         log(f"点击 Watch ad 按钮失败: {type(e).__name__}: '{e}'", "WARN")
         return False
