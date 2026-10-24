@@ -49,7 +49,24 @@ jobs:
           stack: dual
           mode: client
 
+      - name: 检查连续失败(3次则跳过)
+        id: failguard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUNS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/runs?status=completed&per_page=3" \
+            | jq -r '.workflow_runs[] | select(.event=="schedule" or .event=="workflow_dispatch") | .conclusion')
+          echo "recent conclusions: $RUNS"
+          COUNT=$(echo "$RUNS" | grep -c '^failure$' || true)
+          TOTAL=$(echo "$RUNS" | grep -c . || true)
+          if [ "$TOTAL" -eq 3 ] && [ "$COUNT" -eq 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::最近3次运行全部失败，跳过本次执行（手动触发一次成功即可解除）"
+          fi
+
       - name: 执行重启脚本
+        if: steps.failguard.outputs.skip != 'true'
         env:
           WISPBYTE_1: ${{ secrets.WISPBYTE_1 }}
           WISPBYTE_2: ${{ secrets.WISPBYTE_2 }}
