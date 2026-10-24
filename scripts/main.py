@@ -815,16 +815,6 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
         log("✅ 已点击 Watch ad 按钮")
         # Wisp FM 弹窗流程: 点 Watch & support us -> YouTube 直播播放 -> 完成后回来
         time.sleep(4)
-        # 抓弹窗 HTML（一次性诊断）
-        try:
-            mhtml = sb.execute_script(
-                "(function(){var ms=document.querySelectorAll('[class*=modal],[class*=overlay],[class*=dialog],[class*=popup]');"
-                "for(var i=0;i<ms.length;i++){var t=(ms[i].textContent||'');"
-                "if(t.indexOf('Watch')>=0||t.indexOf('Wisp FM')>=0){return ms[i].outerHTML.slice(0,2500)}}"
-                "return 'NO FM MODAL'})()")
-            log(f"[DEBUG] FM 弹窗 HTML: {mhtml}")
-        except Exception as e:
-            log(f"[DEBUG] FM 弹窗抓取异常: {type(e).__name__}")
         # 点 Watch & support us（按文本找按钮）
         clicked_support = False
         for attempt in range(5):
@@ -863,9 +853,9 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
                 before = set(sb.driver.window_handles)
             except Exception:
                 before = set()
-            # 保持页面 150 秒（给 YouTube 播放计入观看）
-            log("保持页面播放 150 秒...")
-            for i in range(15):
+            # 保持页面 90 秒（尽力而为，YouTube 观看有效性不保证）
+            log("保持页面播放 90 秒...")
+            for i in range(9):
                 time.sleep(10)
                 try:
                     now = set(sb.driver.window_handles)
@@ -880,7 +870,7 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
                     pass
                 if i % 3 == 2:
                     try:
-                        log(f"播放中... [{(i+1)*10}s] url={sb.get_current_url()[:70]}")
+                        log(f"播放中... [{(i+1)*10}s]")
                     except Exception:
                         pass
             # 关掉可能的 YouTube 标签，回到控制台
