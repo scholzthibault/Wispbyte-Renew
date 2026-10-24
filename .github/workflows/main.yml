@@ -87,6 +87,15 @@ jobs:
 #          retention-days: 7
 #          if-no-files-found: ignore
 
+      - name: 上传调试截图与HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ github.run_number }}
+          path: output/
+          retention-days: 3
+          if-no-files-found: ignore
+
       - name: 清理历史运行记录
         if: always()
         uses: Mattraks/delete-workflow-runs@v2
