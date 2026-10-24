@@ -593,6 +593,30 @@ def handle_reward_ad_flow(sb, identifier: str, console_url: str) -> bool:
         log("✅ 超时后处理 Alert 弹窗")
         return True
 
+    # DEBUG: dump page HTML for selector analysis
+    try:
+        import os
+        os.makedirs("output", exist_ok=True)
+        html = sb.get_page_source()
+        with open(f"output/debug_console_{safe_id}.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        log(f"DEBUG: 控制台页面 HTML 已保存 output/debug_console_{safe_id}.html ({len(html)} bytes)")
+        # 同时搜索可能的广告按钮文本
+        found = sb.execute_script("""
+            var hits = [];
+            var walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            while (walk.nextNode()) {
+              var t = walk.currentNode.textContent.trim();
+              if (t && (t.indexOf('广告') >= 0 || t.toLowerCase().indexOf('watch') >= 0 || t.toLowerCase().indexOf('ad') >= 0) && t.length < 200) {
+                var el = walk.currentNode.parentElement;
+                hits.push({tag: el.tagName, id: el.id, cls: el.className.toString().slice(0,120), text: t.slice(0,100)});
+              }
+            }
+            return JSON.stringify(hits.slice(0, 30));
+        """)
+        log(f"DEBUG: 页面中广告相关元素: {found}")
+    except Exception as e:
+        log(f"DEBUG dump 失败: {e}", "WARN")
     log("广告流程等待超时，继续执行CF验证", "WARN")
     return True
 
