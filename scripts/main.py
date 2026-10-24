@@ -809,13 +809,20 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
     """
     safe_id = mask_server_id(identifier)
     log(f"=== 尝试观看广告解锁 +100MiB: {safe_id} ===")
+    state = None
+    for attempt in range(6):
+        try:
+            state = sb.execute_script("""
+                var b = document.getElementById('memory-boost-claim-btn');
+                if (!b) return 'missing';
+                if (b.disabled) return 'disabled';
+                return 'ready';
+            """)
+            break
+        except Exception as e:
+            log(f"广告按钮状态检查第{attempt+1}次异常: '{e}'，重试...", "WARN")
+            time.sleep(3)
     try:
-        state = sb.execute_script("""
-            var b = document.getElementById('memory-boost-claim-btn');
-            if (!b) return 'missing';
-            if (b.disabled) return 'disabled';
-            return 'ready';
-        """)
         if state != 'ready':
             log(f"广告按钮状态: {state}，跳过看广告（可能已达7天上限或无广告）")
             return False
