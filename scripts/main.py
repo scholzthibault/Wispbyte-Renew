@@ -808,37 +808,99 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
     返回 True 表示广告观看完成（或已无需观看）。
     """
     safe_id = mask_server_id(identifier)
-    log(f"=== [DIAG] execute_script 行为诊断: {safe_id} ===")
-    diag_cases = {
-        "single_line_return": "return 1+1",
-        "return_document_title": "return document.title",
-        "var_then_return": "var x = 41; return x+1",
-        "iife": "(function(){ return 42 })()",
-        "multiline_return": "\n            var b = 1;\n            return b+1\n        ",
-        "getElementById_return": "var b = document.getElementById('memory-boost-claim-btn'); return b ? 'found' : 'null'",
-    }
-    for name, js in diag_cases.items():
+    log(f"=== 尝试观看广告解锁 +100MiB: {safe_id} ===")
+    # 纯 Selenium 点击（诊断证实原生 click 可靠）
+    try:
+        sb.click("#memory-boost-claim-btn", timeout=10)
+        log("✅ 已点击 Watch ad 按钮")
+    except Exception as e:
+        log(f"点击 Watch ad 按钮失败: {type(e).__name__}: '{e}'", "WARN")
+        return False
+
+    def _btn_ready():
         try:
-            v = sb.execute_script(js)
-            log(f"[DIAG] {name} => OK: {repr(v)}")
-        except Exception as e:
-            log(f"[DIAG] {name} => EXC: {type(e).__name__}: '{e}'")
+            return sb.execute_script(
+                "(function(){var b=document.getElementById('embedWatchBtn');"
+                "if(!b){return 'no'}"
+                "return (b.offsetParent!==null)?'visible':'hidden'})()")
+        except Exception:
+            return 'err'
+
+    # 最多等 120 秒进入广告页（同页跳转 / 新标签页 / 页内弹窗）
+    switched = False
+    for i in range(120):
         time.sleep(1)
-    # 纯 Selenium API 检查按钮
+        # 检查新标签页
+        try:
+            handles = sb.driver.window_handles
+            if len(handles) > 1 and not switched:
+                sb.switch_to_window(handles[-1])
+                switched = True
+                log(f"检测到新标签页并切换: {sb.get_current_url()[:80]}")
+        except Exception:
+            pass
+        try:
+            url = sb.get_current_url()
+        except Exception:
+            continue
+        if 'reward-video' in url or 'reward_video' in url:
+            log("✅ 已进入 reward-video 页面")
+            break
+        if _btn_ready() == 'visible':
+            log("✅ 检测到 embedWatchBtn 可见（页内弹窗）")
+            break
+        if i % 15 == 14:
+            log(f"等待广告页面... [{i+1}s] url={url[:70]}")
+    else:
+        log("⏰ 等待广告页面超时（120s），本次跳过", "WARN")
+        return False
+
+    # 等待 Watch ad 按钮就绪（最长 90 秒）
+    ready = False
+    for i in range(90):
+        if _btn_ready() == 'visible':
+            ready = True
+            break
+        if i % 15 == 14:
+            log(f"等待 Watch ad 按钮加载... [{i+1}s]")
+        time.sleep(1)
+    if not ready:
+        log("⏰ Watch ad 按钮未就绪，跳过", "WARN")
+        return False
+
+    # 原生点击 Watch ad
     try:
-        el = sb.wait_for_element_present("#memory-boost-claim-btn", timeout=5)
-        log(f"[DIAG] find_element 按钮 => OK, tag={el.tag_name}, disabled={el.get_attribute('disabled')}, text={el.text[:40]}")
+        sb.click("#embedWatchBtn", timeout=10)
+        log("✅ 已点击 Watch ad（embedWatchBtn），广告开始播放")
     except Exception as e:
-        log(f"[DIAG] find_element 按钮 => EXC: {type(e).__name__}: '{e}'")
+        log(f"点击 embedWatchBtn 失败: {type(e).__name__}: '{e}'", "ERROR")
+        return False
+
+    # 等待广告完成（最长 300 秒）：离开 reward 页 / 回到控制台
+    for i in range(300):
+        time.sleep(1)
+        try:
+            url = sb.get_current_url()
+        except Exception:
+            continue
+        if 'reward-video' not in url and 'reward_video' not in url:
+            log(f"✅ 广告观看完成（页面已跳转: {url[:70]}）")
+            try:
+                sb.get(console_url)
+                time.sleep(3)
+            except Exception:
+                pass
+            return True
+        if i % 30 == 29:
+            log(f"广告播放中... [{i+1}s]")
+    log("⏰ 广告观看等待超时（300s）", "WARN")
     try:
-        sb.click("#memory-boost-claim-btn", timeout=5)
-        log("[DIAG] sb.click 按钮 => OK")
-        time.sleep(2)
-        log(f"[DIAG] 点击后 URL: {sb.get_current_url()}")
-    except Exception as e:
-        log(f"[DIAG] sb.click 按钮 => EXC: {type(e).__name__}: '{e}'")
-    log("=== [DIAG] 诊断结束，跳过实际广告流程 ===")
+        sb.get(console_url)
+        time.sleep(3)
+    except Exception:
+        pass
     return False
+
     state = None
     for attempt in range(6):
         try:
