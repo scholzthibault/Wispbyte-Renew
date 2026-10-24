@@ -808,7 +808,37 @@ def claim_memory_boost(sb, identifier: str, console_url: str) -> bool:
     返回 True 表示广告观看完成（或已无需观看）。
     """
     safe_id = mask_server_id(identifier)
-    log(f"=== 尝试观看广告解锁 +100MiB: {safe_id} ===")
+    log(f"=== [DIAG] execute_script 行为诊断: {safe_id} ===")
+    diag_cases = {
+        "single_line_return": "return 1+1",
+        "return_document_title": "return document.title",
+        "var_then_return": "var x = 41; return x+1",
+        "iife": "(function(){ return 42 })()",
+        "multiline_return": "\n            var b = 1;\n            return b+1\n        ",
+        "getElementById_return": "var b = document.getElementById('memory-boost-claim-btn'); return b ? 'found' : 'null'",
+    }
+    for name, js in diag_cases.items():
+        try:
+            v = sb.execute_script(js)
+            log(f"[DIAG] {name} => OK: {repr(v)}")
+        except Exception as e:
+            log(f"[DIAG] {name} => EXC: {type(e).__name__}: '{e}'")
+        time.sleep(1)
+    # 纯 Selenium API 检查按钮
+    try:
+        el = sb.wait_for_element_present("#memory-boost-claim-btn", timeout=5)
+        log(f"[DIAG] find_element 按钮 => OK, tag={el.tag_name}, disabled={el.get_attribute('disabled')}, text={el.text[:40]}")
+    except Exception as e:
+        log(f"[DIAG] find_element 按钮 => EXC: {type(e).__name__}: '{e}'")
+    try:
+        sb.click("#memory-boost-claim-btn", timeout=5)
+        log("[DIAG] sb.click 按钮 => OK")
+        time.sleep(2)
+        log(f"[DIAG] 点击后 URL: {sb.get_current_url()}")
+    except Exception as e:
+        log(f"[DIAG] sb.click 按钮 => EXC: {type(e).__name__}: '{e}'")
+    log("=== [DIAG] 诊断结束，跳过实际广告流程 ===")
+    return False
     state = None
     for attempt in range(6):
         try:
@@ -1015,13 +1045,6 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
     with SB(uc=True, test=True, locale="en", headed=False,
             user_data_dir=user_data_dir,
             chromium_arg="--disable-blink-features=AutomationControlled") as sb:
-        # 修复: 该环境 execute_script 不包裹函数体, 裸 return 报 Illegal return statement
-        # 统一用 IIFE 包裹, 使所有 return 脚本正常工作
-        _orig_execute_script = sb.execute_script
-        def _wrapped_execute_script(script, *args, **kwargs):
-            return _orig_execute_script("(function(){" + script + "})()", *args, **kwargs)
-        sb.execute_script = _wrapped_execute_script
-        log("已应用 execute_script IIFE 包装补丁")
         try:
             if not login(sb, email, password):
                 screenshot = take_screenshot(sb, idx, "login-fail")
