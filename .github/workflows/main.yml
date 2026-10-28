@@ -2,13 +2,17 @@ name: Wispbyte 自动重启
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # 每天 UTC 11:00 = 北京时间 19:00
+    - cron: '0 * * * *'  # 每小时整点（UTC）= 北京时间每小时；先探测，活着秒退
   workflow_dispatch:
     inputs:
       accounts:
         description: '指定邮箱账号（留空运行全部，多个用逗号分隔）'
         required: false
         default: ''
+      force:
+        description: '跳过探测强制执行重启（true/false）'
+        required: false
+        default: 'false'
 
 permissions:
   actions: write
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   restart:
-    name: 执行重启脚本
+    name: 探测并按需重启
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -25,38 +29,31 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 配置 Python 环境
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: 安装系统依赖
+      - name: 探测节点是否存活（活着则跳过本次）
+        id: probe
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb ffmpeg unzip curl gnupg
-          wget -q -O /tmp/google-chrome-stable_current_amd64.deb \
-            https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo dpkg -i /tmp/google-chrome-stable_current_amd64.deb || sudo apt-get install -f -y
-
-      - name: 安装 Python 依赖
-        run: |
-          python -m pip install --upgrade pip
-          pip install seleniumbase pyvirtualdisplay requests
-
-      - name: 启用 WARP 网络
-        uses: fscarmen/warp-on-actions@v1.3
-        with:
-          stack: dual
-          mode: client
+          ALIVE=0
+          for i in 1 2 3; do
+            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc:9304/ || true)
+            echo "probe attempt $i: http=$CODE"
+            if [ "$CODE" = "200" ]; then ALIVE=1; break; fi
+            sleep 5
+          done
+          if [ "$ALIVE" = "1" ]; then
+            echo "alive=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::节点存活（HTTP 200），本次跳过重启流程"
+          else
+            echo "alive=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::节点无响应（连续3次探测失败），执行完整重启流程"
+          fi
 
       - name: 检查连续失败(3次则跳过)
         id: failguard
+        if: steps.probe.outputs.alive != 'true' || inputs.force == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          RUNS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/runs?status=completed&per_page=3" \
-            | jq -r '.workflow_runs[] | select(.event=="schedule" or .event=="workflow_dispatch") | .conclusion')
+          RUNS=$(curl -s -H "Authorization: Bearer $GH_TOKEN"             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/runs?status=completed&per_page=3"             | jq -r '.workflow_runs[] | select(.event=="schedule" or .event=="workflow_dispatch") | .conclusion')
           echo "recent conclusions: $RUNS"
           COUNT=$(echo "$RUNS" | grep -c '^failure$' || true)
           TOTAL=$(echo "$RUNS" | grep -c . || true)
@@ -65,8 +62,35 @@ jobs:
             echo "::warning::最近3次运行全部失败，跳过本次执行（手动触发一次成功即可解除）"
           fi
 
+      - name: 配置 Python 环境
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装系统依赖
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb ffmpeg unzip curl gnupg
+          wget -q -O /tmp/google-chrome-stable_current_amd64.deb             https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i /tmp/google-chrome-stable_current_amd64.deb || sudo apt-get install -f -y
+
+      - name: 安装 Python 依赖
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install seleniumbase pyvirtualdisplay requests
+
+      - name: 启用 WARP 网络
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+
       - name: 执行重启脚本
-        if: steps.failguard.outputs.skip != 'true'
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
         env:
           WISPBYTE_1: ${{ secrets.WISPBYTE_1 }}
           WISPBYTE_2: ${{ secrets.WISPBYTE_2 }}
@@ -77,15 +101,6 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           INPUT_ACCOUNTS: ${{ inputs.accounts }}
         run: python -u scripts/main.py
-
-#      - name: 上传截图
-#        if: always()
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: wispbyte-screenshots-${{ github.run_number }}
-#          path: output/screenshots/*.png
-#          retention-days: 7
-#          if-no-files-found: ignore
 
       - name: 上传调试截图与HTML
         if: always()
