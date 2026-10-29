@@ -1219,8 +1219,45 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
                               f"❌ 未找到服务器\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
                 return
 
+            any_ok = False
             for si, server_id in enumerate(servers, start=1):
                 success = restart_server(sb, server_id)
+                if not success:
+                    # 面板侧失败：再给一次机会——Kill 后重新 Start 并用外部节点 URL 验证
+                    log(f"面板重启失败，尝试 Kill→Start 二次拉起: {server_id}")
+                    try:
+                        kill_sel = 'button#kill-btn, button[aria-label="Kill"], button:contains("Kill")'
+                        try:
+                            kb = sb.wait_for_element_visible(kill_sel, timeout=6)
+                            kb.click()
+                            log("已点击 Kill")
+                            time.sleep(8)
+                        except Exception:
+                            log("未找到 Kill 按钮（可能本来就是停止状态）", "WARN")
+                        success = restart_server(sb, server_id)
+                    except Exception as e:
+                        log(f"二次拉起异常: {e}", "WARN")
+                if success:
+                    # 终极验证：外部节点 URL 真实探测
+                    try:
+                        import urllib.request as _ur
+                        ssl_ctx = __import__('ssl')._create_unverified_context()
+                        ok_url = False
+                        for _ in range(3):
+                            try:
+                                r = _ur.urlopen("https://xj.vpn0418.ccwu.cc:9304/", timeout=10, context=ssl_ctx)
+                                if r.status == 200:
+                                    ok_url = True
+                                    break
+                            except Exception:
+                                time.sleep(15)
+                        if ok_url:
+                            log("✅ 外部节点探测 HTTP 200，确认真实上线")
+                        else:
+                            log("⚠️ 面板显示成功但外部节点未响应，按失败处理", "WARN")
+                            success = ok_url
+                    except Exception as e:
+                        log(f"外部探测异常: {e}", "WARN")
                 suffix = f"done-{si}" if len(servers) > 1 else "done"
                 screenshot = take_screenshot(sb, idx, suffix)
                 status_icon = "✅" if success else "❌"
@@ -1232,6 +1269,11 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
                     f"Wispbyte Auto Restart"
                 )
                 send_tg_photo(tg_token, tg_chat, screenshot, caption)
+                if success:
+                    any_ok = True
+            if not any_ok:
+                log("所有服务器重启均失败，以非零码退出以触发 workflow failure", "ERROR")
+                sys.exit(2)
 
         except Exception as e:
             log(f"账号 {idx} 处理异常: {e}", "ERROR")
