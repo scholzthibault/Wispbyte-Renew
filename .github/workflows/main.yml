@@ -34,7 +34,7 @@ jobs:
         run: |
           ALIVE=0
           for i in 1 2 3; do
-            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc:9304/ || true)
+            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc/ || true)
             echo "probe attempt $i: http=$CODE"
             if [ "$CODE" = "200" ]; then ALIVE=1; break; fi
             sleep 5
@@ -108,7 +108,7 @@ jobs:
         run: |
           OK=0
           for i in 1 2 3 4 5 6; do
-            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc:9304/ || true)
+            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc/ || true)
             echo "verify attempt $i: http=$CODE"
             if [ "$CODE" = "200" ]; then OK=1; break; fi
             sleep 20
