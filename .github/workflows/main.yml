@@ -91,6 +91,7 @@ jobs:
 
       - name: 执行重启脚本
         if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        id: restart
         env:
           WISPBYTE_1: ${{ secrets.WISPBYTE_1 }}
           WISPBYTE_2: ${{ secrets.WISPBYTE_2 }}
@@ -101,6 +102,22 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           INPUT_ACCOUNTS: ${{ inputs.accounts }}
         run: python -u scripts/main.py
+
+      - name: 最终节点验证（不通过则本次判定失败）
+        if: (steps.probe.outputs.alive != 'true' || inputs.force == 'true') && steps.failguard.outputs.skip != 'true'
+        run: |
+          OK=0
+          for i in 1 2 3 4 5 6; do
+            CODE=$(curl -sk --noproxy '*' --max-time 12 -o /dev/null -w '%{http_code}'               https://xj.vpn0418.ccwu.cc:9304/ || true)
+            echo "verify attempt $i: http=$CODE"
+            if [ "$CODE" = "200" ]; then OK=1; break; fi
+            sleep 20
+          done
+          if [ "$OK" != "1" ]; then
+            echo "::error::重启后节点仍未上线（6 次探测失败），判定本次运行 failure"
+            exit 1
+          fi
+          echo "::notice::节点已真实上线（HTTP 200）"
 
       - name: 上传调试截图与HTML
         if: always()
